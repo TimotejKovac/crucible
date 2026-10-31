@@ -53,6 +53,28 @@ if [[ -z "$OUTPUT_PATH" ]]; then
   exit 1
 fi
 
+# Reuse an already-built helper instead of invoking zig at all.
+# Same host problem as CMUX_SKIP_ZIG_BUILD below (zig 0.15.2 cannot link against
+# the installed macOS SDK — it emits a 0-byte binary and exits 0), but this path
+# yields a REAL helper rather than a stub: the checked-out ghostty pin has not
+# moved, so a previous zig-out helper built from it is still correct.
+# CMUX_USE_PREBUILT_GHOSTTY_HELPER=1 takes ghostty/zig-out/bin/ghostty;
+# CMUX_GHOSTTY_HELPER_PREBUILT=<path> names one explicitly.
+PREBUILT_HELPER="${CMUX_GHOSTTY_HELPER_PREBUILT:-}"
+if [[ -z "$PREBUILT_HELPER" && "${CMUX_USE_PREBUILT_GHOSTTY_HELPER:-}" == "1" ]]; then
+  PREBUILT_HELPER="$GHOSTTY_DIR/zig-out/bin/ghostty"
+fi
+if [[ -n "$PREBUILT_HELPER" ]]; then
+  if [[ ! -s "$PREBUILT_HELPER" ]]; then
+    echo "error: prebuilt Ghostty CLI helper is missing or empty at $PREBUILT_HELPER" >&2
+    exit 1
+  fi
+  echo "Reusing prebuilt Ghostty CLI helper: $PREBUILT_HELPER"
+  mkdir -p "$(dirname "$OUTPUT_PATH")"
+  install -m 755 "$PREBUILT_HELPER" "$OUTPUT_PATH"
+  exit 0
+fi
+
 # Allow CI to skip the zig build (e.g., macOS 26 where zig 0.15.2 can't link).
 # Creates a stub binary so the Xcode Run Script file-existence check passes.
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
