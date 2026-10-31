@@ -690,35 +690,43 @@ struct BrowserPanelView: View {
             logBrowserFocusState(event: "addressBarFocus.onChange.applied")
 #endif
         }
-        .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
-            guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
-            guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
+        .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection), perform: handleMoveOmnibarSelection)
+        .onReceive(panel.historyStore.$entries, perform: handleHistoryEntriesChanged)
+        .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar), perform: handleExternalAddressBarBlur)
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange), perform: handleGhosttyDefaultBackgroundChange)
+    }
+
+    // Split out of `body`'s modifier chain: inline, these closures push the chain past
+    // Xcode 27's type-checker budget ("unable to type-check this expression in reasonable time").
+    private func handleMoveOmnibarSelection(_ notification: Notification) {
+        guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
+        guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+        guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
-            logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
+        logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
 #endif
-            let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
-            applyOmnibarEffects(effects)
-            refreshInlineCompletion()
-        }
-        .onReceive(panel.historyStore.$entries) { _ in
-            guard addressBarFocused else { return }
-            refreshSuggestions()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar).filter { note in
-            guard let panelId = note.object as? UUID else { return false }
-            return panelId == panel.id
-        }) { _ in
-            if addressBarFocused {
+        let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
+        applyOmnibarEffects(effects)
+        refreshInlineCompletion()
+    }
+
+    private func handleHistoryEntriesChanged(_: [BrowserHistoryStore.Entry]) {
+        guard addressBarFocused else { return }
+        refreshSuggestions()
+    }
+
+    private func handleExternalAddressBarBlur(_ notification: Notification) {
+        guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
+        if addressBarFocused {
 #if DEBUG
-                logBrowserFocusState(event: "addressBarFocus.externalBlur")
+            logBrowserFocusState(event: "addressBarFocus.externalBlur")
 #endif
-                setAddressBarFocused(false, reason: "notification.externalBlur")
-            }
+            setAddressBarFocused(false, reason: "notification.externalBlur")
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            refreshBrowserChromeStyle()
-        }
+    }
+
+    private func handleGhosttyDefaultBackgroundChange(_: Notification) {
+        refreshBrowserChromeStyle()
     }
 
     private var addressBar: some View {
